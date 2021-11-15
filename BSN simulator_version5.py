@@ -251,9 +251,8 @@ class CustomMainWindow(QMainWindow): # about the main window
             pa_list = []
             
             for i in range(self.input_flag) :
-                globals()['box_input{}'.format(chr(i + 1 + 64))] = uniform(-5.0, 5.0)
-                # 소수점 다섯 째자리에서 반올림
-                globals()['textbox{}'.format(i + 1)].setText(str(round(globals()['box_input{}'.format(chr(i + 1 + 64))], 4)))
+                globals()['box_input{}'.format(chr(i + 1 + 64))] = round(uniform(-5.0, 5.0), 4) # 소수점 다섯 째자리에서 반올림
+                globals()['textbox{}'.format(i + 1)].setText(str(globals()['box_input{}'.format(chr(i + 1 + 64))]))
                 pa_list.append(globals()['box_input{}'.format(chr(i + 1 + 64))])
             
             pa_t = tuple(pa_list)
@@ -318,7 +317,9 @@ class AndGateCanvas(FigureCanvas):
         
         self.plus = []
         
-        self.ani_flag = 1
+        self.ani_flag = 2
+        self.call_flag = -1
+        self.samn = 100
         
         self.fig = Figure(figsize=(10, 20), dpi=50)  #그래프 그릴 창 생성
         self.fig.suptitle('AND Gate Histogram', fontsize=20)
@@ -333,28 +334,34 @@ class AndGateCanvas(FigureCanvas):
         FigureCanvas.__init__(self, self.fig)
         return
     
+    def change_samn(self, samn):
+        self.init_plus()
+        self.samn = samn
+    
     def update_bsn(self, *nums):
         for i in range(self.graph_num) :
             globals()['s{}'.format(chr(i + 65))] = nums[i]
-        if self.ani_flag == 1 :
+            
+        self.plus.append(self.cal_and())
+        t_a = torch.tensor(self.plus)
+        self.arr = list(t_a.numpy())
+        if self.ani_flag == 2 :
             self.ani = anim.FuncAnimation(self.fig, self.animate, interval=100, blit = True) # self.animate 실시간 호출
+            self.ani_flag = 1
         return
     
     def init_plus(self) : 
-        del self.plus
+        print('init_plus test')
         self.plus = [] # input num이 변했을 때 array 초기화
     
     def animate(self, i):
-        if self.ani_flag == 1 :
-            self.plus.append(self.cal_and())
-            t_a = torch.tensor(self.plus)
-            arr = list(t_a.numpy())
-
+        if self.ani_flag == 1 and len(self.plus) == self.samn : # FuncAnimation이 start 상태이고 sampling 개수가 채워진 상태이면
+            # probability를 histogram으로 표시
             self.ax.cla()
             self.ax.set_xlabel('state')
             self.ax.set_ylabel('Probability')
-            # probability를 histogram으로 표시
-            self.hi, bins, self.patches = self.ax.hist(arr, bins=range(0, self.rg, 1), rwidth=0.8, color='#abffb6', density=True)
+            self.hi, bins, self.patches = self.ax.hist(self.arr, bins=range(0, self.rg, 1), rwidth=0.8, color='#abffb6', density=True)
+            self.init_plus()
         return self.patches
     
     def cal_and(self) : # 2진수 -> 10진수
@@ -385,6 +392,9 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         self.samt = 3.0
         self.samn = 100
         self.samn_flag = 0
+        
+        self.queue_flag = -1
+        self.gf_list = []
         
         for i in range(self.graph_num) :
             globals()['addedData{}_1'.format(chr(i + 65))] = [] # for output graph
@@ -438,11 +448,26 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                     if globals()['queue{}'.format(chr(i + 65))].full() : # queue가 full이면 get()
                         globals()['queue{}'.format(chr(i + 65))].get()
                     globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))])
+                    self.queue_flag = globals()['s{}_1'.format(chr(i + 65))]
+                    
+                    if self.gateFig != None :
+                        self.gf_list = []
+                        for i in range(self.graph_num) :
+                            self.gf_list.append(globals()['s{}_1'.format(chr(i + 65))])
+                        
                 elif state == 2 : # for output graph
-                    globals()['addedData{}_1'.format(chr(i + 65))].append(globals()['s{}_1'.format(chr(i + 65))])
+                    if self.queue_flag != -1 : # 이미 queue에 삽입되기 위해 생성된 neuron 값이 있으면
+                        globals()['addedData{}_1'.format(chr(i + 65))].append(self.queue_flag)
+                    else :
+                        globals()['addedData{}_1'.format(chr(i + 65))].append(globals()['s{}_1'.format(chr(i + 65))])
+                    self.queue_flag = -1
+                    
         if state == 1 :
             self.samn_flag += 1
             print(self.samn_flag)
+            if self.gf_list != [] :
+                gf_t = tuple(self.gf_list)
+                self.gateFig.update_bsn(*gf_t) # AndGateCanvas에 BSN 전달
     
     def store_andCanvas(self, f) :
         self.gateFig = f
@@ -477,10 +502,11 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             
         if self.samt != samt or self.samn != samn :
             self.samt = samt
+            timer.setInterval(self.samt * 1000) # timer interval init
             self.samn = samn
+            self.gateFig.change_samn(samn)
             for i in range(len(nums)) : # queue init
                 globals()['queue{}'.format(chr(i + 65))] = Queue(self.samn)
-            timer.setInterval(self.samt * 1000) # timer interval init
             self.samn_flag = 0
 
     def new_frame_seq(self):
@@ -509,13 +535,6 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 globals()['flag{}_1'.format(chr(i + 65))] = globals()['input{}_1'.format(chr(i + 65))]
 
             self.cal_graph(1, 2)
-            
-            if self.gateFig != None :
-                gf_list = []
-                for i in range(self.graph_num) :
-                    gf_list.append(globals()['s{}_1'.format(chr(i + 65))])
-                gf_t = tuple(gf_list)
-                self.gateFig.update_bsn(*gf_t)
 
             # mean update by sampling number interval
             if self.myFig != None and globals()['queue{}'.format(chr(i + 65))].full and self.samn_flag == self.samn :
@@ -625,6 +644,7 @@ class CustomFigCanvas2(FigureCanvas):
         
         self.call_flag = 0
         if self.ani_flag == 2 :
+            print('ani_flag test')
             for i in range(1, self.graph_num + 1) :
                 self.ani_flag = 1
                 globals()['scat_init{}'.format(i)].remove()
@@ -632,7 +652,7 @@ class CustomFigCanvas2(FigureCanvas):
         return
     
     def animate(self, i, num):
-        if self.ani_flag == 1 and self.call_flag < 3 : # FuncAnimation이 start 상태이고 update_list가 호출된 상태이면
+        if self.ani_flag == 1 and self.call_flag < self.graph_num : # FuncAnimation이 start 상태이고 update_list가 호출된 상태이면
             if globals()['scat{}'.format(num)] != None :
                 globals()['scat{}'.format(num)].remove() # 기존 scatter 삭제
             globals()['scat{}'.format(num)] = globals()['ax{}_2'.format(num)].scatter(globals()['input{}_2'.format(chr(num + 64))], np.mean(globals()['{}_2'.format(chr(num + 96))]), s=250, color='red') # scatter update
