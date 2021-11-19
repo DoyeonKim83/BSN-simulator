@@ -16,6 +16,7 @@
 
 from __future__ import division
 import numpy as np
+#import cupy as cp
 import random
 import itertools
 import os
@@ -41,9 +42,16 @@ from matplotlib.animation import TimedAnimation
 from matplotlib.lines import Line2D
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import time
+import timeit
 import threading
 from datetime import datetime
 from queue import Queue
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
+os.environ["CUDA_VISIBLE_DEVICES"]= "0"
+if torch.cuda.is_available() :
+    print('GPU found')
+else:
+    print("No GPU found")
 
 
 class CustomMainWindow(QMainWindow): # about the main window
@@ -57,7 +65,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         self.inc_flag = 1
         self.Variable_ea = 65
         
-        self.constant = 1.0
+        #self.relt = 1.0
         self.samt = 3.0
         self.samn = 100
         global timer 
@@ -148,8 +156,12 @@ class CustomMainWindow(QMainWindow): # about the main window
         for i in range(self.graph_num) :
             self.add_inputbox()
             
+        # Add relaxion time
+        for i in range(1, self.graph_num + 1) :
+            globals()['relt_input{}'.format(chr(i))] = 0.0 # input 변수 생성
+            self.add_parambox('relt' + str(i), 'T_r' + str(i), '1.0')
+            
         # Add Parameter
-        self.add_parambox('con', 'T_r', '1.0')
         self.add_parambox('samt', 'T_s', '3.0')
         self.add_parambox('samn', 'N_s', '100')
         
@@ -262,21 +274,28 @@ class CustomMainWindow(QMainWindow): # about the main window
         
     def on_click(self) : # textbox 값 저장 & text 값 변경  
         pa_list = []
+        re_list = []
         
         for i in range(self.input_flag) :
             if globals()['textbox{}'.format(i + 1)].text() != "" :
                 globals()['box_input{}'.format(chr(i + 1 + 64))] = float(globals()['textbox{}'.format(i + 1)].text())
                 pa_list.append(globals()['box_input{}'.format(chr(i + 1 + 64))])
-          
-        if textbox_con.text() != "" :
-            self.constant = float(textbox_con.text())
+                
+        for i in range(self.input_flag) :
+            if globals()['textbox_relt{}'.format(i + 1)].text() != "" :
+                globals()['relt_input{}'.format(chr(i + 1))] = float(globals()['textbox_relt{}'.format(i + 1)].text())
+                re_list.append(globals()['relt_input{}'.format(chr(i + 1))])
+
         if textbox_samt.text() != "" :
             self.samt = float(textbox_samt.text())
         if textbox_samn.text() != "" :
             self.samn = float(textbox_samn.text())
         
+        re_t = tuple(re_list)
         pa_t = tuple(pa_list)
-        self.myFig1.change_input(self.constant, self.samt, self.samn, *pa_t) # 변경된 값 CustomFigCanvas1에 전달
+         # 변경된 값 CustomFigCanvas1에 전달
+        self.myFig1.change_input(self.samt, self.samn, *pa_t)
+        self.myFig1.change_relt(*re_t)
 
     def addData_callbackFunc(self, value):
         self.myFig1.addData(value)
@@ -385,9 +404,6 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         print(matplotlib.__version__)
         self.graph_num = graph_num
         self.xlim = 30 # x축 length
-        self.xval = 30 # x축에 표시할 데이터 크기
-        self.constant = 1.0
-        self.n = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * self.constant
         
         self.samt = 3.0
         self.samn = 100
@@ -402,13 +418,16 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             globals()['input{}_1'.format(chr(i + 65))] = 0.0 # input value
             globals()['flag{}_1'.format(chr(i + 65))] = -10.0 # 슬라이더 값이 변경됐을 때 mean list 초기화를 위한 flag 변수
             globals()['queue{}'.format(chr(i + 65))] = Queue(self.samn) # Queue for calculate mean 
+            globals()['xval{}'.format(i + 1)] = 30
+            globals()['relt{}'.format(i + 1)] = 1.0 # t_r
+            globals()['n{}'.format(i + 1)] = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * globals()['relt{}'.format(i + 1)]
         
         self.myFig = None # CustomFigCanvas2 object
         self.gateFig = None # AndGateCanvas object
         
         self.ani_flag = 1 # Animation start
         
-        self.cal_graph(self.xlim, 0) # {}_1 list init
+        self.cal_graph(self.xlim, 0, -1) # {}_1 list init
         timer.start(self.samt * 1000) # timer interval : self.samt * 1000ms
         timer.timeout.connect(self.timer_graph)
         
@@ -430,7 +449,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         setattr(self, '_draw_was_started', True)
         return
     
-    def cal_graph(self, num, state) :
+    def cal_graph(self, num, state, g_n) :
         for i in range(self.graph_num) :
             for j in range(num) :
                 input = globals()['input{}_1'.format(chr(i + 65))]
@@ -443,24 +462,25 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(p_sign) # relu 함수를 이용해 -1로 출력된 값들은 모두 0으로 처리                         
                 
                 if state == 0 : # init
-                    globals()['{}_1'.format(chr(i + 97))].append(globals()['s{}_1'.format(chr(i + 65))]) # BSN 저장 list에 저장
+                    globals()['{}_1'.format(chr(i + 97))].append(globals()['s{}_1'.format(chr(i + 65))].item()) # BSN 저장 list에 저장
                 elif state == 1 : # with Timer
                     if globals()['queue{}'.format(chr(i + 65))].full() : # queue가 full이면 get()
                         globals()['queue{}'.format(chr(i + 65))].get()
-                    globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))])
+                    globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))].item())
                     self.queue_flag = globals()['s{}_1'.format(chr(i + 65))]
                     
                     if self.gateFig != None :
                         self.gf_list = []
                         for i in range(self.graph_num) :
-                            self.gf_list.append(globals()['s{}_1'.format(chr(i + 65))])
-                        
+                            self.gf_list.append(globals()['s{}_1'.format(chr(i + 65))])    
                 elif state == 2 : # for output graph
                     if self.queue_flag != -1 : # 이미 queue에 삽입되기 위해 생성된 neuron 값이 있으면
                         globals()['addedData{}_1'.format(chr(i + 65))].append(self.queue_flag)
                     else :
                         globals()['addedData{}_1'.format(chr(i + 65))].append(globals()['s{}_1'.format(chr(i + 65))])
                     self.queue_flag = -1
+                elif state == 3 and i == g_n : # t_r < 1.0
+                    globals()['{}_1'.format(chr(i + 97))].append(globals()['s{}_1'.format(chr(i + 65))].item())
                     
         if state == 1 :
             self.samn_flag += 1
@@ -487,18 +507,10 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             globals()['input{}_1'.format(chr(i + 1 + 64))] = nums[i]
             print(globals()['input{}_1'.format(chr(i + 1 + 64))])
     
-    def change_input(self, constant, samt, samn, *nums): # 슬라이더 값 변경에 따른 input 값 변경
+    def change_input(self, samt, samn, *nums): # 슬라이더 값 변경에 따른 input 값 변경
         for i in range(len(nums)) :
             globals()['input{}_1'.format(chr(i + 1 + 64))] = nums[i]
             print(globals()['input{}_1'.format(chr(i + 1 + 64))])
-        
-        self.constant = constant
-        if self.constant < 1.0 : # time constant가 1.0 미만이면 output graph에 표시할 데이터 크기 증가
-            self.xval = round(1.0 / self.constant * self.xlim)
-            for i in range(self.graph_num) :
-                globals()['{}_1'.format(chr(i + 97))] = []
-            self.cal_graph(self.xval, 0) # a_1, b_1 ... init 후 다시 xval만큼 생성
-        self.n = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * self.constant
             
         if self.samt != samt or self.samn != samn :
             self.samt = samt
@@ -508,9 +520,18 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             for i in range(len(nums)) : # queue init
                 globals()['queue{}'.format(chr(i + 65))] = Queue(self.samn)
             self.samn_flag = 0
-
+            
+    def change_relt(self, *relt): # t_r change
+        for i in range(len(relt)) :
+            globals()['relt{}'.format(i + 1)] = relt[i]
+            if globals()['relt{}'.format(i + 1)] < 1.0 : # time constant가 1.0 미만이면 output graph에 표시할 데이터 크기 증가
+                globals()['xval{}'.format(i + 1)] = round(1.0 / globals()['relt{}'.format(i + 1)] * self.xlim)
+                globals()['{}_1'.format(chr(i + 97))] = []
+                self.cal_graph(globals()['xval{}'.format(i + 1)], 3, i) # a_1, b_1 ... init 후 다시 xval만큼 생성
+            globals()['n{}'.format(i + 1)] = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * globals()['relt{}'.format(i + 1)]
+            
     def new_frame_seq(self):
-        return iter(range(self.n.size))
+        return iter(range(globals()['n{}'.format(1)].size))
 
     def _init_draw(self):
         for i in range(1, self.graph_num + 1) :
@@ -520,7 +541,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         return
     
     def timer_graph(self) :
-        self.cal_graph(1, 1)
+        self.cal_graph(1, 1, -1)
 
     def addData(self, value):
         if self.ani_flag == 1 : # if snimation start
@@ -534,7 +555,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
 
                 globals()['flag{}_1'.format(chr(i + 65))] = globals()['input{}_1'.format(chr(i + 65))]
 
-            self.cal_graph(1, 2)
+            self.cal_graph(1, 2, -1)
 
             # mean update by sampling number interval
             if self.myFig != None and globals()['queue{}'.format(chr(i + 65))].full and self.samn_flag == self.samn :
@@ -564,7 +585,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 del(globals()['addedData{}_1'.format(chr(i + 65))][0])
                 
         for i in range(self.graph_num) :
-            globals()['line{}_1'.format(i + 1)].set_data(self.n[: self.xval], globals()['{}_1'.format(chr(i + 97))][: self.xval])
+            globals()['line{}_1'.format(i + 1)].set_data(globals()['n{}'.format(i + 1)][: globals()['xval{}'.format(i + 1)]], globals()['{}_1'.format(chr(i + 97))][: globals()['xval{}'.format(i + 1)]])
             globals()['_drawn_artists{}'.format(i + 1)] = [globals()['line{}_1'.format(i + 1)]]
         return
     
@@ -604,7 +625,7 @@ class CustomFigCanvas2(FigureCanvas):
                 p_ = p - ran
                 p_sign = torch.sign(p_) 
                 s = torch.nn.functional.relu(p_sign) # relu 함수를 이용해 -1로 출력된 값들은 모두 0으로 처리
-                list.append(s)
+                list.append(s.item())
             self.mae.append(np.mean(list)) # output 평균 저장
             
         x_new = np.arange(-6, 6, 0.01)
