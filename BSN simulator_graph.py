@@ -56,7 +56,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         super(CustomMainWindow, self).__init__()
         # Define the geometry of the main window
         self.setGeometry(100, 100, 1300, 900)
-        self.setWindowTitle("Binary Stochastic Neuron")
+        self.setWindowTitle("BSN Graph")
         
         self.samt = 3.0
         self.samn = 100
@@ -165,9 +165,9 @@ class CustomMainWindow(QMainWindow): # about the main window
         myDataLoop.start()
         
         # Place the matplotlib figure for histogram
-        self.gateFig = AndGateCanvas(self.graph_num)
-        self.LAYOUT_B.addWidget(self.gateFig, 3, 0, 1, 3)
-        self.myFig1.store_andCanvas(self.gateFig)
+        self.confFig = ConfigurationCanvas(self.graph_num)
+        self.LAYOUT_B.addWidget(self.confFig, 3, 0, 1, 3)
+        self.myFig1.store_andCanvas(self.confFig)
         
         # Place the matplotlib figure for mean
         self.myFig2 = CustomFigCanvas2(self.graph_num)
@@ -179,7 +179,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         
         # set button event for start and stop control
         self.control = Control()
-        self.control.store_two_canvas(self.myFig1, self.myFig2, self.gateFig)
+        self.control.store_two_canvas(self.myFig1, self.myFig2, self.confFig)
         self.button_1.clicked.connect(self.control.start)
         self.button_2.clicked.connect(self.control.stop)
         return
@@ -224,26 +224,26 @@ class Control(): # start and stop control
     def __init__(self):
         self.myFig1 = None
         self.myFig2 = None
-        self.gateFig = None
+        self.confFig = None
         
     def store_two_canvas(self, f1, f2, f3) :
         print('control test')
         self.myFig1 = f1
         self.myFig2 = f2
-        self.gateFig = f3
+        self.confFig = f3
         
     def start(self) :
         self.myFig1.start()
         self.myFig2.start()
-        self.gateFig.start()
+        self.confFig.start()
         
     def stop(self) :
         self.myFig1.stop()
         self.myFig2.stop()
-        self.gateFig.stop()
+        self.confFig.stop()
 
 
-class AndGateCanvas(FigureCanvas):
+class ConfigurationCanvas(FigureCanvas):
     def __init__(self, graph_num):
         print(matplotlib.__version__)
         self.graph_num = graph_num
@@ -259,7 +259,7 @@ class AndGateCanvas(FigureCanvas):
         self.samn = 100
         
         self.fig = Figure(figsize=(10, 20), dpi=50)  #그래프 그릴 창 생성
-        self.fig.suptitle('AND Gate Histogram', fontsize=20)
+        self.fig.suptitle('Bit Configuration Histogram', fontsize=20)
         self.fig.subplots_adjust(hspace=1)
         
         self.rg = 2 ** self.graph_num + 1
@@ -294,7 +294,7 @@ class AndGateCanvas(FigureCanvas):
         if self.ani_flag == 1 and len(self.plus) == self.samn : # FuncAnimation이 start 상태이고 sampling 개수가 채워진 상태이면
             # probability를 histogram으로 표시
             self.ax.cla()
-            self.ax.set_xlabel('state')
+            self.ax.set_xlabel('State (decimal)')
             self.ax.set_ylabel('Probability')
             self.hi, bins, self.patches = self.ax.hist(cp.asnumpy(self.plus), bins=range(0, self.rg, 1), rwidth=0.8, color='#abffb6', density=True)
             self.init_plus()
@@ -327,7 +327,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         self.samn_flag = 0
         
         self.queue_flag = -1
-        self.gf_list = []
+        self.cf_list = []
         
         for i in range(self.graph_num) :
             globals()['addedData{}_1'.format(chr(i + 65))] = cp.array([]) # for output graph
@@ -340,7 +340,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             globals()['n{}'.format(i + 1)] = cp.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * globals()['relt{}'.format(i + 1)]
         
         self.myFig = None # CustomFigCanvas2 object
-        self.gateFig = None # AndGateCanvas object
+        self.confFig = None # ConfigurationCanvas object
         
         self.ani_flag = 1 # Animation start
         
@@ -376,7 +376,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 # probability가 uniform distribution random 값 보다 크면 1, 아니면 -1로 출력
                 p_ = p - ran
                 p_sign = torch.sign(p_) 
-                globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(p_sign) # relu 함수를 이용해 -1로 출력된 값들은 모두 0으로 처리                         
+                globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(p_sign) # -1로 출력된 값들은 모두 0으로 처리                         
                 
                 if state == 0 : # init
                     globals()['{}_1'.format(chr(i + 97))] = cp.append(globals()['{}_1'.format(chr(i + 97))], globals()['s{}_1'.format(chr(i + 65))]) # BSN 저장 list에 저장
@@ -386,10 +386,10 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                     globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))])
                     self.queue_flag = globals()['s{}_1'.format(chr(i + 65))]
                     
-                    if self.gateFig != None :
-                        self.gf_list = []
+                    if self.confFig != None :
+                        self.cf_list = []
                         for i in range(self.graph_num) :
-                            self.gf_list.append(globals()['s{}_1'.format(chr(i + 65))])
+                            self.cf_list.append(globals()['s{}_1'.format(chr(i + 65))])
                 elif state == 2 : # for output graph
                     if self.queue_flag != -1 : # 이미 queue에 삽입되기 위해 생성된 neuron 값이 있으면
                         globals()['addedData{}_1'.format(chr(i + 65))] = cp.append(globals()['addedData{}_1'.format(chr(i + 65))], self.queue_flag)
@@ -397,17 +397,18 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                         globals()['addedData{}_1'.format(chr(i + 65))] = cp.append(globals()['addedData{}_1'.format(chr(i + 65))], globals()['s{}_1'.format(chr(i + 65))])
                     self.queue_flag = -1
                 elif state == 3 and i == g_n : # t_r < 1.0
-                    globals()['{}_1'.format(chr(i + 97))] = cp.append(globals()['{}_1'.format(chr(i + 97))], globals()['s{}_1'.format(chr(i + 65))])
+                    globals()['{}_1'.format(chr(i + 97))] = cp.append(globals()['{}_1'.format(chr(i + 97))], 
+                                                                      globals()['s{}_1'.format(chr(i + 65))])
                     
         if state == 1 :
             self.samn_flag += 1
             print(self.samn_flag)
-            if self.gf_list != [] :
-                gf_t = tuple(self.gf_list)
-                self.gateFig.update_bsn(*gf_t) # AndGateCanvas에 BSN 전달
+            if self.cf_list != [] :
+                cf_t = tuple(self.cf_list)
+                self.confFig.update_bsn(*cf_t) # ConfigurationCanvas에 BSN 전달
     
     def store_andCanvas(self, f) :
-        self.gateFig = f
+        self.confFig = f
     
     def store_canvas2(self, f) : # CustomFigCanvas2 객체 저장 및 scatter initializing for BSN list 전달
         self.myFig = f
@@ -429,7 +430,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             self.samt = samt
             timer.setInterval(self.samt * 1000) # timer interval init
             self.samn = samn
-            self.gateFig.change_samn(samn)
+            self.confFig.change_samn(samn)
             for i in range(len(nums)) : # queue init
                 globals()['queue{}'.format(chr(i + 65))] = Queue(self.samn)
             self.samn_flag = 0
@@ -465,7 +466,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                     print('test{}_1'.format(chr(i + 65)))
                     globals()['queue{}'.format(chr(i + 65))] = Queue(self.samn)
                     self.samn_flag = 0
-                    self.gateFig.init_plus()
+                    self.confFig.init_plus()
 
                 globals()['flag{}_1'.format(chr(i + 65))] = globals()['input{}_1'.format(chr(i + 65))]
 
