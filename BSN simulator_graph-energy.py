@@ -42,12 +42,6 @@ import timeit
 import threading
 from queue import Queue
 from datetime import datetime
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
-os.environ["CUDA_VISIBLE_DEVICES"]= "0"
-if torch.cuda.is_available() :
-    print('GPU found')
-else:
-    print("No GPU found")
 
 
 class CustomMainWindow(QMainWindow): # about the main window
@@ -259,6 +253,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         self.myFig1.change_input(self.samt, self.samn, *pa_t)
         self.myFig1.change_relt(*re_t)
         self.myFig1.change_matrix(self.dt, self.I0, *ma_t)
+        self.myFig1.graph_init()
 
     def addData_callbackFunc(self, value):
         self.myFig1.addData(value)
@@ -304,12 +299,12 @@ class ConfigurationCanvas(FigureCanvas):
         self.samn = 100
         
         self.fig = Figure(figsize=(10, 20), dpi=50)  #그래프 그릴 창 생성
-        self.fig.suptitle('Bit Configuration Histogram', fontsize=20)
+        self.fig.suptitle('States Occupied', fontsize=20)
         self.fig.subplots_adjust(hspace=1)
         
         self.rg = 2 ** self.graph_num + 1
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_xlabel('state')
+        self.ax.set_xlabel('State (decimal)')
         self.ax.set_ylabel('Probability')
         self.hi, bins, self.patches = self.ax.hist([], bins=range(0, self.rg, 1), rwidth=0.8, color='#abffb6')
         
@@ -370,6 +365,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         self.samt = 3.0
         self.samn = 100
         self.samn_flag = 0
+        self.timer_flag = -1 # energy graph init을 위한 flag 변수
         
         self.queue_flag = -1
         self.cf_list = []
@@ -411,7 +407,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         
         for i in range(1, self.graph_num + 1) :
             globals()['ax{}_1'.format(i)] = self.fig.add_subplot(self.graph_num, 1, i)
-            globals()['ax{}_1'.format(i)].set_xlabel('number of times')
+            globals()['ax{}_1'.format(i)].set_xlabel('Timesteps')
             globals()['ax{}_1'.format(i)].set_ylabel('BSN')
             globals()['line{}_1'.format(i)] = Line2D([], [], color='blue', drawstyle='steps')
             globals()['ax{}_1'.format(i)].add_line(globals()['line{}_1'.format(i)])
@@ -423,27 +419,51 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         setattr(self, '_draw_was_started', True)
         return
     
+    def graph_init(self) : # energy graph init
+        e_flag = []
+                        
+        for k in range(2**self.graph_num) : # j, h  matrix를 통해 얻을 수 있는 모든 energy value 얻기
+            li = np.zeros(self.graph_num, dtype=int)
+            for l in range(self.graph_num) :
+                num = k % 2
+                if num == 0 :
+                    li[l] = -1
+                else :
+                    li[l] = num
+                k = k // 2
+            li = np.flip(li)
+            e_flag.append(np.dot(li, self.h) + np.multiply(0.5, np.dot(np.dot(li, self.j), li)))
+    
+        self.fig.suptitle('ENERGY', fontsize=16)
+        for i in range(self.graph_num) :
+            globals()['line{}_1'.format(i + 1)].set_drawstyle('default')
+            globals()['ax{}_1'.format(i + 1)].set_ylabel('ENERGY')
+            # y축 범위 : j, h matrix를 통해 얻을 수 있는 가장 작은 energy value ~ 가장 큰 energy value
+            globals()['ax{}_1'.format(i + 1)].set_ylim(-0.1 + min(e_flag), 0.1 + max(e_flag))
+    
     def cal_graph(self, num, state, g_n) :
         for i in range(self.graph_num) :
             for j in range(num) :
-                if state == 0 : # init
-                    input = globals()['input{}_1'.format(chr(i + 65))]
-                    p = torch.FloatTensor([1.0 / (1.0 + np.exp(-input))])
-                    m = torch.sign(p - torch.rand(1)) 
+                input = globals()['input{}_1'.format(chr(i + 65))]
+                p = torch.FloatTensor([1.0 / (1.0 + np.exp(-input))])
+                m = torch.sign(p - torch.rand(1)) 
+                if state == 0 or self.timer_flag == -1 : # init
                     globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(m).item()
                 else : # put energy
                     self.x[i] = -1 * self.I0 * (np.dot(self.m, self.j[i]) + self.h[i]) # calculate x input bias
                     self.p[i] = np.exp(-1.0 * self.dt * (np.exp(-1.0 * self.m[i] * self.x[i]))) # probability
                     self.m[i] = self.m[i] * torch.sign(self.p[i] - torch.rand(1))
-                    globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(torch.tensor(self.m[i])).item() # -1로 출력된 값들은 모두 0으로 처리                         
+                    if self.timer_flag == 0 :
+                        self.graph_init()
+                    globals()['s{}_1'.format(chr(i + 65))] = np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))
                 
                 if state == 0 : # init
                     globals()['{}_1'.format(chr(i + 97))].append(globals()['s{}_1'.format(chr(i + 65))]) # BSN 저장 list에 저장
                 elif state == 1 : # with Timer
                     if globals()['queue{}'.format(chr(i + 65))].full() : # queue가 full이면 get()
                         globals()['queue{}'.format(chr(i + 65))].get()
-                    globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))])
-                    self.queue_flag = globals()['s{}_1'.format(chr(i + 65))]
+                    globals()['queue{}'.format(chr(i + 65))].put(torch.nn.functional.relu(m).item()) # BSN output store
+                    self.queue_flag = torch.nn.functional.relu(m).item()
                     
                     if self.confFig != None :
                         self.cf_list = []
@@ -461,6 +481,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         if state == 1 :
             self.samn_flag += 1
             print('{} {}'.format(self.samn_flag, self.m))
+            print(np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))) # energy print
             if self.cf_list != [] :
                 cf_t = tuple(self.cf_list)
                 self.confFig.update_bsn(*cf_t) # ConfigurationCanvas에 BSN 전달
@@ -557,6 +578,7 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
 
             # mean update by sampling number interval
             if self.myFig != None and globals()['queue{}'.format(chr(i + 65))].full and self.samn_flag == self.samn :
+                self.timer_flag += 1
                 self.samn_flag = 0
                 pa_list = []  
                 for i in range(self.graph_num) :

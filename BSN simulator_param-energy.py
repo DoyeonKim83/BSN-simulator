@@ -24,12 +24,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from datetime import datetime
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
-os.environ["CUDA_VISIBLE_DEVICES"]= "0"
-if torch.cuda.is_available() :
-    print('GPU found')
-else:
-    print("No GPU found")
 
 
 class CustomMainWindow(QMainWindow): # about the main window
@@ -260,6 +254,9 @@ class CustomMainWindow(QMainWindow): # about the main window
         self.LAYOUT_C.addWidget(self.textbox_I0, self.inc_flag + 1, 3)
         
     def save_click(self, state) : # save parameter value
+        if os.path.isfile('bsn_param.csv') :
+            os.remove('bsn_param.csv')
+            
         f = open('bsn_param.csv', 'w')
         wr = csv.writer(f)
         
@@ -268,11 +265,11 @@ class CustomMainWindow(QMainWindow): # about the main window
         
         for i in range(self.graph_num):
             if globals()['textbox{}'.format(i + 1)].text() != "" :
-                pa_list.append(globals()['textbox{}'.format(i + 1)])
+                pa_list.append(globals()['textbox{}'.format(i + 1)].text())
                                
         for i in range(self.graph_num):
             if globals()['textbox_relt{}'.format(i + 1)].text() != "" :
-                pa_list.append(globals()['textbox_relt{}'.format(i + 1)])
+                pa_list.append(globals()['textbox_relt{}'.format(i + 1)].text())
                                
         pa_list.append(textbox_samt.text())
         pa_list.append(textbox_samn.text())
