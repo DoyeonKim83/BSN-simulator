@@ -449,10 +449,12 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 m = torch.sign(p - torch.rand(1)) 
                 if state == 0 or self.timer_flag == -1 : # init
                     globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(m).item()
+                    timer_append = globals()['s{}_1'.format(chr(i + 65))] # for queue and cf_list append
                 else : # put energy
-                    self.x[i] = -1 * self.I0 * (np.dot(self.m, self.j[i]) + self.h[i]) # calculate x input bias
-                    self.p[i] = np.exp(-1.0 * self.dt * (np.exp(-1.0 * self.m[i] * self.x[i]))) # probability
+                    self.x[i] = -1 * (np.dot(self.m, self.j[i]) + self.h[i]) # calculate x input bias
+                    self.p[i] = np.exp(-1.0 * self.dt * (np.exp(-1.0 * self.I0 * self.m[i] * self.x[i]))) # probability
                     self.m[i] = self.m[i] * torch.sign(self.p[i] - torch.rand(1))
+                    timer_append = torch.nn.functional.relu(torch.IntTensor([self.m[i]])).item() # for queue and cf_list append
                     if self.timer_flag == 0 :
                         self.graph_init()
                     globals()['s{}_1'.format(chr(i + 65))] = np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))
@@ -462,13 +464,11 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 elif state == 1 : # with Timer
                     if globals()['queue{}'.format(chr(i + 65))].full() : # queue가 full이면 get()
                         globals()['queue{}'.format(chr(i + 65))].get()
-                    globals()['queue{}'.format(chr(i + 65))].put(torch.nn.functional.relu(m).item()) # BSN output store
-                    self.queue_flag = torch.nn.functional.relu(m).item()
+                    globals()['queue{}'.format(chr(i + 65))].put(timer_append) # BSN output store
+                    self.queue_flag = timer_append
                     
                     if self.confFig != None :
-                        self.cf_list = []
-                        for i in range(self.graph_num) :
-                            self.cf_list.append(globals()['s{}_1'.format(chr(i + 65))])
+                        self.cf_list.append(timer_append)
                 elif state == 2 : # for output graph
                     if self.queue_flag != -1 : # 이미 queue에 삽입되기 위해 생성된 neuron 값이 있으면
                         globals()['addedData{}_1'.format(chr(i + 65))].append(self.queue_flag)
@@ -480,11 +480,16 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                     
         if state == 1 :
             self.samn_flag += 1
-            print('{} {}'.format(self.samn_flag, self.m))
-            print(np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))) # energy print
+            if self.timer_flag == -1 :
+                print(self.samn_flag)
+            else :
+                print('{} {}'.format(self.samn_flag, self.m))
+                print(np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))) # energy print
             if self.cf_list != [] :
+                print(self.cf_list)
                 cf_t = tuple(self.cf_list)
                 self.confFig.update_bsn(*cf_t) # ConfigurationCanvas에 BSN 전달
+                self.cf_list = []
     
     def store_andCanvas(self, f) :
         self.confFig = f
