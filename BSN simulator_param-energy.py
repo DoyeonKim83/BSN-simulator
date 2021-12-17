@@ -224,21 +224,7 @@ class CustomMainWindow(QMainWindow): # about the main window
             globals()['textbox_{}'.format('H_' + str(i))].resize(10,10)
             globals()['textbox_{}'.format('H_' + str(i))].setFont(QFont("맑은 고딕", 15)) #폰트,크기 조절
             globals()['textbox_{}'.format('H_' + str(i))].setText('0')
-            self.LAYOUT_C.addWidget(globals()['textbox_{}'.format('H_' + str(i))], self.inc_flag + 1, i + 1)
-            
-        self.inc_flag += 1
-        
-        self.label_dt = QLabel(self)
-        self.label_dt.setText('dt')
-        self.label_dt.setFont(QFont("맑은 고딕", 18)) #폰트,크기 조절
-        self.label_dt.setStyleSheet('QLabel {padding: 1px;}')
-        self.LAYOUT_C.addWidget(self.label_dt, self.inc_flag + 1, 0)
-        
-        self.textbox_dt = QLineEdit(self)
-        self.textbox_dt.resize(10,10)
-        self.textbox_dt.setFont(QFont("맑은 고딕", 15)) #폰트,크기 조절
-        self.textbox_dt.setText('0.3')
-        self.LAYOUT_C.addWidget(self.textbox_dt, self.inc_flag + 1, 1)
+            self.LAYOUT_C.addWidget(globals()['textbox_{}'.format('H_' + str(i))], self.inc_flag + i + 1, 1)
         
         self.label_I0 = QLabel(self)
         self.label_I0.setText('I0')
@@ -250,7 +236,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         self.textbox_I0 = QLineEdit(self)
         self.textbox_I0.resize(10,10)
         self.textbox_I0.setFont(QFont("맑은 고딕", 15)) #폰트,크기 조절
-        self.textbox_I0.setText('0.3')
+        self.textbox_I0.setText('0.1')
         self.LAYOUT_C.addWidget(self.textbox_I0, self.inc_flag + 1, 3)
         
     def save_click(self, state) : # save parameter value
@@ -283,7 +269,6 @@ class CustomMainWindow(QMainWindow): # about the main window
             if globals()['textbox_{}'.format('H_' + str(i))].text() != "" :
                 pa_list.append(globals()['textbox_{}'.format('H_' + str(i))].text())
                 
-        pa_list.append(self.textbox_dt.text())
         pa_list.append(self.textbox_I0.text())
         
         wr.writerow(pa_list) # csv 파일에 저장
@@ -320,8 +305,6 @@ class CustomMainWindow(QMainWindow): # about the main window
                 globals()['textbox_{}'.format('H_' + str(i))].setText(pa_list[flag + 1])
                 flag += 1
                 
-            self.textbox_dt.setText(pa_list[flag + 1])
-            flag += 1
             self.textbox_I0.setText(pa_list[flag + 1])
         else :
             print('bits num incorrect')

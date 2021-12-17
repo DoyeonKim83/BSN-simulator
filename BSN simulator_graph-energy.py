@@ -162,8 +162,6 @@ class CustomMainWindow(QMainWindow): # about the main window
             matrix_list.append(globals()['matrix_{}'.format('H_' + str(i))])
             flag += 1
             
-        self.dt = float(param_list[flag + 1])
-        flag += 1
         self.I0 = float(param_list[flag + 1])
             
         f.close() 
@@ -190,7 +188,7 @@ class CustomMainWindow(QMainWindow): # about the main window
         self.myFig1.store_canvas2(self.myFig2)
         # 변경된 값 CustomFigCanvas1에 전달
         self.myFig1.change_input(self.samt, self.samn, *pa_t)
-        self.myFig1.change_matrix(self.dt, self.I0, *ma_t)
+        self.myFig1.change_matrix(self.I0, *ma_t)
         self.myFig1.change_relt(*re_t)
         
         # set button event for start and stop control
@@ -240,8 +238,6 @@ class CustomMainWindow(QMainWindow): # about the main window
             matrix_list.append(globals()['matrix_{}'.format('H_' + str(i))])
             flag += 1
             
-        self.dt = float(param_list[flag + 1])
-        flag += 1
         self.I0 = float(param_list[flag + 1])
             
         f.close() 
@@ -252,8 +248,7 @@ class CustomMainWindow(QMainWindow): # about the main window
          # 변경된 값 CustomFigCanvas1에 전달
         self.myFig1.change_input(self.samt, self.samn, *pa_t)
         self.myFig1.change_relt(*re_t)
-        self.myFig1.change_matrix(self.dt, self.I0, *ma_t)
-        self.myFig1.graph_init()
+        self.myFig1.change_matrix(self.I0, *ma_t)
 
     def addData_callbackFunc(self, value):
         self.myFig1.addData(value)
@@ -373,12 +368,11 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         self.j = np.zeros((self.graph_num, self.graph_num), dtype=int) # J-matrix
         self.h = np.zeros(self.graph_num, dtype=int) # H-matrix
         
-        self.x = np.zeros(self.graph_num, dtype=float) # store synaptic function value
+        self.x = np.zeros(self.graph_num, dtype=object) # store synaptic function value
         self.p = np.zeros(self.graph_num, dtype=float) # store probability
         self.m = np.zeros(self.graph_num, dtype=int) # store individual p-bits
         
-        self.I0 = 0.3 # inverse temperature
-        self.dt = 0.3 # p-bits 평균 업데이트 빈도
+        self.I0 = 0.1 # inverse temperature
         
         for i in range(self.graph_num) :
             globals()['addedData{}_1'.format(chr(i + 65))] = [] # for output graph
@@ -389,8 +383,9 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
             globals()['xval{}'.format(i + 1)] = 30
             globals()['relt{}'.format(i + 1)] = 1.0 # t_r
             globals()['n{}'.format(i + 1)] = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * globals()['relt{}'.format(i + 1)]
-            np.put(self.m, i, torch.sign(1.0 / (1.0 + np.exp(-0.0)) - torch.rand(1))) # m init
-        print(self.m)
+            #globals()['dt{}'.format(chr(i + 65))] = 0.5
+            globals()['m_mean{}'.format(chr(i + 65))] = []
+            np.put(self.m, i, torch.sign(0.5 - torch.rand(1))) # m init
         
         self.myFig = None # CustomFigCanvas2 object
         self.confFig = None # ConfigurationCanvas object
@@ -419,28 +414,6 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         setattr(self, '_draw_was_started', True)
         return
     
-    def graph_init(self) : # energy graph init
-        e_flag = []
-                        
-        for k in range(2**self.graph_num) : # j, h  matrix를 통해 얻을 수 있는 모든 energy value 얻기
-            li = np.zeros(self.graph_num, dtype=int)
-            for l in range(self.graph_num) :
-                num = k % 2
-                if num == 0 :
-                    li[l] = -1
-                else :
-                    li[l] = num
-                k = k // 2
-            li = np.flip(li)
-            e_flag.append(np.dot(li, self.h) + np.multiply(0.5, np.dot(np.dot(li, self.j), li)))
-    
-        self.fig.suptitle('ENERGY', fontsize=16)
-        for i in range(self.graph_num) :
-            globals()['line{}_1'.format(i + 1)].set_drawstyle('default')
-            globals()['ax{}_1'.format(i + 1)].set_ylabel('ENERGY')
-            # y축 범위 : j, h matrix를 통해 얻을 수 있는 가장 작은 energy value ~ 가장 큰 energy value
-            globals()['ax{}_1'.format(i + 1)].set_ylim(-0.1 + min(e_flag), 0.1 + max(e_flag))
-    
     def cal_graph(self, num, state, g_n) :
         for i in range(self.graph_num) :
             for j in range(num) :
@@ -449,26 +422,29 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 m = torch.sign(p - torch.rand(1)) 
                 if state == 0 or self.timer_flag == -1 : # init
                     globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(m).item()
-                    timer_append = globals()['s{}_1'.format(chr(i + 65))] # for queue and cf_list append
-                else : # put energy
-                    self.x[i] = -1 * (np.dot(self.m, self.j[i]) + self.h[i]) # calculate x input bias
-                    self.p[i] = np.exp(-1.0 * self.dt * (np.exp(-1.0 * self.I0 * self.m[i] * self.x[i]))) # probability
-                    self.m[i] = self.m[i] * torch.sign(self.p[i] - torch.rand(1))
-                    timer_append = torch.nn.functional.relu(torch.IntTensor([self.m[i]])).item() # for queue and cf_list append
-                    if self.timer_flag == 0 :
-                        self.graph_init()
-                    globals()['s{}_1'.format(chr(i + 65))] = np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))
+                else : # put energy (input : synapse function output)
+                    if globals()['m_mean{}'.format(chr(i + 65))] == [] :  # calculate x input bias
+                        self.x[i] = self.I0 * (np.dot(input, self.j[i]) + self.h[i]) # calculate x input bias
+                    else :
+                        self.x[i] = self.I0 * (np.dot(np.mean(globals()['m_mean{}'.format(chr(i + 65))]), self.j[i]) + self.h[i])
+                    #self.x[i] = self.I0 * (np.dot(self.m, self.j[i]) + self.h[i])
+                    #self.p[i] = np.exp(-1.0 * globals()['dt{}'.format(chr(i + 65))] * (np.exp(-1.0 * self.m[i] * self.x[i]))) # probability
+                    #self.p[i] = np.exp(-1.0  * (np.exp(-1.0 * self.m[i] * self.x[i][0]))) # probability
+                    self.p[i] = torch.FloatTensor([1.0 / (1.0 + np.exp(-self.x[i][0]))]) # probability
+                    self.m[i] = torch.sign(self.p[i] - torch.rand(1))
+                    globals()['s{}_1'.format(chr(i + 65))] = torch.nn.functional.relu(torch.IntTensor([self.m[i]])).item()
+                    globals()['m_mean{}'.format(chr(i + 65))].append(globals()['s{}_1'.format(chr(i + 65))])
                 
                 if state == 0 : # init
                     globals()['{}_1'.format(chr(i + 97))].append(globals()['s{}_1'.format(chr(i + 65))]) # BSN 저장 list에 저장
                 elif state == 1 : # with Timer
                     if globals()['queue{}'.format(chr(i + 65))].full() : # queue가 full이면 get()
                         globals()['queue{}'.format(chr(i + 65))].get()
-                    globals()['queue{}'.format(chr(i + 65))].put(timer_append) # BSN output store
-                    self.queue_flag = timer_append
+                    globals()['queue{}'.format(chr(i + 65))].put(globals()['s{}_1'.format(chr(i + 65))]) # BSN output store
+                    self.queue_flag = globals()['s{}_1'.format(chr(i + 65))]
                     
                     if self.confFig != None :
-                        self.cf_list.append(timer_append)
+                        self.cf_list.append(globals()['s{}_1'.format(chr(i + 65))])
                 elif state == 2 : # for output graph
                     if self.queue_flag != -1 : # 이미 queue에 삽입되기 위해 생성된 neuron 값이 있으면
                         globals()['addedData{}_1'.format(chr(i + 65))].append(self.queue_flag)
@@ -486,7 +462,6 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                 print('{} {}'.format(self.samn_flag, self.m))
                 print(np.dot(self.m, self.h) + np.multiply(0.5, np.dot(np.dot(self.m, self.j), self.m))) # energy print
             if self.cf_list != [] :
-                print(self.cf_list)
                 cf_t = tuple(self.cf_list)
                 self.confFig.update_bsn(*cf_t) # ConfigurationCanvas에 BSN 전달
                 self.cf_list = []
@@ -509,6 +484,10 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
         for i in range(len(nums)) :
             globals()['input{}_1'.format(chr(i + 1 + 64))] = nums[i]
             print(globals()['input{}_1'.format(chr(i + 1 + 64))])
+            self.m[i] = torch.sign(1.0 / (1.0 + np.exp(-nums[i])) - torch.rand(1))
+            globals()['m_mean{}'.format(chr(i + 65))] = []
+            #globals()['dt{}'.format(chr(i + 65))] = 1.0 - 1.0 / (1.0 + np.exp(-globals()['input{}_1'.format(chr(i + 1 + 64))]))
+            #print(globals()['dt{}'.format(chr(i + 65))])
             
         if self.samt != samt or self.samn != samn :
             self.samt = samt
@@ -529,11 +508,9 @@ class CustomFigCanvas1(FigureCanvas, TimedAnimation): # for constant graph
                     self.cal_graph(globals()['xval{}'.format(i + 1)], 3, i) # a_1, b_1 ... init 후 다시 xval만큼 생성
                 globals()['n{}'.format(i + 1)] = np.linspace(0, self.xlim * 1000 - 1, self.xlim * 1000) * globals()['relt{}'.format(i + 1)]
             
-    def change_matrix(self, dt, I0, *matrix): # matrix value 및 관련 parameter value update
+    def change_matrix(self, I0, *matrix): # matrix value 및 관련 parameter value update
         flag = 0
-        
-        self.dt = dt
-        print(self.dt)
+
         self.I0 = I0
         print(self.I0)
         
@@ -745,5 +722,3 @@ if __name__== '__main__':
     app = QApplication(sys.argv)
     myGUI = CustomMainWindow()
     sys.exit(app.exec_())
-
-
